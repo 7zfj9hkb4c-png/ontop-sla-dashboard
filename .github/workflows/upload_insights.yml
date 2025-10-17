@@ -1,67 +1,66 @@
 name: Upload AI Insights to Google Drive
 
 on:
-  schedule:
-    - cron: '30 13 * * 1'  # Lunes 8:30 AM hora Colombia (13:30 UTC)
-  workflow_dispatch:  # permite correrlo manualmente también
+  workflow_dispatch:
 
 jobs:
   upload:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-     - name: Install dependencies
+      - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
-     - name: Create service account key file
+          python -m pip install --upgrade pip
+          pip install pandas matplotlib openpyxl google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+
+      - name: Create service account key file
         run: |
           echo "${{ secrets.GCP_SA_JSON }}" | base64 --decode > sa_key.json
-      - name: Generate insights file
+
+      - name: Generate and upload AI Insights file
+        env:
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
         run: |
-          python - <<EOF
-          import pandas as pd, json, datetime, gspread
+          python - <<'PY'
+          import json, os, pandas as pd
+          from datetime import datetime
           from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
 
-          # Cargar credenciales
-          creds_dict = json.loads(open('sa_key.json').read())
-          creds = service_account.Credentials.from_service_account_info(
-              creds_dict,
-              scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
-          )
-
-          # Generar archivo con insights de la semana más reciente
-          week = datetime.datetime.now().isocalendar().week
-          today = datetime.datetime.now().strftime("%Y-%m-%d")
-
-          df = pd.DataFrame({
-              "Date": [today],
+          # --- 1. Generate Insights content ---
+          week = 42
+          data = {
               "Week": [week],
-              "Summary": ["SLA improved to 97%, FRT reduced by 12%. Key improvement: faster ticket resolution in FinOps team."]
-          })
+              "Narrative": [f"SLA performance remained stable for week {week}. FRT improved slightly, maintaining targets."]
+          }
+          df = pd.DataFrame(data)
+          file_name = f"AI_Insights_Week_{week}.html"
+          df.to_html(file_name, index=False)
 
-          file_name = f"AI_Insights_Week_{week}.csv"
-          df.to_csv(file_name, index=False)
           print(f"✅ File generated: {file_name}")
 
-          # Subir a Google Drive
-          import googleapiclient.discovery as discovery
-          service = discovery.build('drive', 'v3', credentials=creds)
-          folder_id = "${{ secrets.GDRIVE_FOLDER_ID }}"
+          # --- 2. Upload to Google Drive ---
+          folder_id = os.getenv("GDRIVE_FOLDER_ID")
+          creds = service_account.Credentials.from_service_account_file(
+              "sa_key.json",
+              scopes=["https://www.googleapis.com/auth/drive.file"]
+          )
+          service = build("drive", "v3", credentials=creds)
 
-          file_metadata = {
-              'name': file_name,
-              'parents': [folder_id]
-          }
-          media = discovery.MediaFileUpload(file_name, mimetype='text/csv')
-          upload = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-          print(f"✅ Uploaded to Drive: {upload.get('id')}")
-          EOF
+          file_metadata = {"name": file_name, "parents": [folder_id]}
+          media = MediaFileUpload(file_name, mimetype="text/html")
+
+          uploaded = service.files().create(
+              body=file_metadata, media_body=media, fields="id"
+          ).execute()
+
+          print(f"✅ Uploaded to Drive with ID: {uploaded.get('id')}")
+          PY
