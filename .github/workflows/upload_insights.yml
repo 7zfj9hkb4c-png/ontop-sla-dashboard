@@ -17,37 +17,41 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pandas matplotlib openpyxl google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+          pip install google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
 
       - name: Create service account key file
         run: |
-          echo "${{ secrets.GCP_SA_JSON }}" | base64 --decode > sa_key.json
+          echo "${{ secrets.GCP_SA_JSON }}" > sa_key.json
 
       - name: Generate and upload AI Insights file
         run: |
-          python - <<'PY'
+          python <<'PY'
           import json
           from google.oauth2 import service_account
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
-         # Guardar el archivo generado
-         filename = "AI_Insights_Week_42.html"
-         with open(filename, "w") as f:
-         f.write("<h1>AI Insights</h1><p>Generated automatically</p>")
-         print(f"✅ File generated: {filename}")
+          # Generate Insights HTML file
+          filename = "AI_Insights_Week_42.html"
+          with open(filename, "w") as f:
+              f.write("<h1>AI Insights</h1><p>Generated automatically</p>")
+          print(f"✅ File generated: {filename}")
 
-         # Conectar a Google Drive
-         creds_info = json.loads('''${{ secrets.GDRIVE_CREDENTIALS_JSON }}''')
-         creds = service_account.Credentials.from_service_account_info(creds_info, scopes=["https://www.googleapis.com/auth/drive"])
-         service = build('drive', 'v3', credentials=creds)
+          # Authenticate using Service Account
+          creds_info = json.loads('''${{ secrets.GDRIVE_CREDENTIALS_JSON }}''')
+          creds = service_account.Credentials.from_service_account_info(
+              creds_info, scopes=["https://www.googleapis.com/auth/drive"]
+          )
+          service = build('drive', 'v3', credentials=creds)
 
-         # Subir el archivo
-         folder_id = "${{ secrets.GDRIVE_FOLDER_ID }}"
-         file_metadata = {'name': filename, 'parents': [folder_id]}
-         media = MediaFileUpload(filename, mimetype='text/html')
+          # Upload file to Drive
+          folder_id = "${{ secrets.GDRIVE_FOLDER_ID }}"
+          file_metadata = {'name': filename, 'parents': [folder_id]}
+          media = MediaFileUpload(filename, mimetype='text/html')
 
-         uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-         print(f"✅ Uploaded file to Drive. File ID: {uploaded_file.get('id')}")
-         PY
+          uploaded_file = service.files().create(
+              body=file_metadata, media_body=media, fields='id'
+          ).execute()
+
+          print(f"✅ Uploaded to Drive. File ID: {uploaded_file.get('id')}")
+          PY
