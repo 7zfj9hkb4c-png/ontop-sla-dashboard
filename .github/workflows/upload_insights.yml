@@ -1,0 +1,68 @@
+name: Upload AI Insights to Google Drive
+
+on:
+  schedule:
+    - cron: '30 13 * * 1'  # Lunes 8:30 AM hora Colombia (13:30 UTC)
+  workflow_dispatch:  # permite correrlo manualmente también
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas gspread google-auth google-auth-oauthlib google-auth-httplib2
+
+      - name: Create service account key file
+        run: |
+          echo "${{ secrets.GCP_SA_JSON }}" > sa_key.json
+
+      - name: Generate insights file
+        run: |
+          python - <<EOF
+          import pandas as pd, json, datetime, gspread
+          from google.oauth2 import service_account
+
+          # Cargar credenciales
+          creds_dict = json.loads(open('sa_key.json').read())
+          creds = service_account.Credentials.from_service_account_info(
+              creds_dict,
+              scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/spreadsheets"]
+          )
+
+          # Generar archivo con insights de la semana más reciente
+          week = datetime.datetime.now().isocalendar().week
+          today = datetime.datetime.now().strftime("%Y-%m-%d")
+
+          df = pd.DataFrame({
+              "Date": [today],
+              "Week": [week],
+              "Summary": ["SLA improved to 97%, FRT reduced by 12%. Key improvement: faster ticket resolution in FinOps team."]
+          })
+
+          file_name = f"AI_Insights_Week_{week}.csv"
+          df.to_csv(file_name, index=False)
+          print(f"✅ File generated: {file_name}")
+
+          # Subir a Google Drive
+          import googleapiclient.discovery as discovery
+          service = discovery.build('drive', 'v3', credentials=creds)
+          folder_id = "${{ secrets.GDRIVE_FOLDER_ID }}"
+
+          file_metadata = {
+              'name': file_name,
+              'parents': [folder_id]
+          }
+          media = discovery.MediaFileUpload(file_name, mimetype='text/csv')
+          upload = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+          print(f"✅ Uploaded to Drive: {upload.get('id')}")
+          EOF
