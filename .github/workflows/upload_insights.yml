@@ -24,8 +24,7 @@ jobs:
 
       - name: Create service account key file
         run: |
-          echo "${{ secrets.GCP_SA_JSON }}" | base64 --decode > sa_key.json || echo "${{ secrets.GCP_SA_JSON }}" > sa_key.json
-
+          echo "${{ secrets.GCP_SA_JSON }}" | base64 --decode > sa_key.json
       - name: Generate insights file
         run: |
           python - <<EOF
